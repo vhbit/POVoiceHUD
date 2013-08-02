@@ -32,6 +32,23 @@
 #import "POVoiceHUD.h"
 
 @implementation POVoiceHUD
+{
+    UIButton *btnCancel;
+    UIButton *_startButton;
+    UIButton *_doneButton;
+    UIImage *imgMicrophone;
+    int soundMeters[40];
+    CGRect hudRect;
+
+	NSString *recorderFilePath;
+	AVAudioRecorder *recorder;
+
+	NSTimer *timer;
+
+    float recordTime;
+    float lastLoudTime;
+    UIView *_buttonSeparator;
+}
 
 - (id)initWithFrame:(CGRect)frame
 {
@@ -44,14 +61,42 @@
 		self.backgroundColor = [UIColor clearColor];
 
 		self.alpha = 0.0f;
-        
+
+        _maxDuration = 0.0;
+        _recordSettings = @{
+                AVFormatIDKey: @(kAudioFormatAppleIMA4),
+                AVSampleRateKey: @(16000.0),
+                AVNumberOfChannelsKey: @(1)
+        };
+
+        self.title = NSLocalizedString(@"Ready?", @"Before record title");
+
         hudRect = CGRectMake(self.center.x - (HUD_SIZE / 2), self.center.y - (HUD_SIZE / 2), HUD_SIZE, HUD_SIZE);
         int x = (frame.size.width - HUD_SIZE) / 2;
-        btnCancel = [[UIButton alloc] initWithFrame:CGRectMake(x, hudRect.origin.y + HUD_SIZE - CANCEL_BUTTON_HEIGHT, HUD_SIZE, CANCEL_BUTTON_HEIGHT)];
+
+        _startButton = [[UIButton alloc] initWithFrame:CGRectMake(x, hudRect.origin.y + HUD_SIZE - CANCEL_BUTTON_HEIGHT, HUD_SIZE, CANCEL_BUTTON_HEIGHT)];
+        [_startButton setTitle:NSLocalizedString(@"Record", nil) forState:UIControlStateNormal];
+        [_startButton addTarget:self action:@selector(startRecording) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_startButton];
+
+
+        btnCancel = [[UIButton alloc] initWithFrame:CGRectMake(x, hudRect.origin.y + HUD_SIZE - CANCEL_BUTTON_HEIGHT, HUD_SIZE / 2.0, CANCEL_BUTTON_HEIGHT)];
         [btnCancel setTitle:NSLocalizedString(@"Cancel", nil) forState:UIControlStateNormal];
         [btnCancel addTarget:self action:@selector(cancelled:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:btnCancel];
-        
+        btnCancel.hidden = YES;
+
+        _doneButton = [[UIButton alloc] initWithFrame:CGRectMake(x + HUD_SIZE / 2.0, hudRect.origin.y + HUD_SIZE - CANCEL_BUTTON_HEIGHT, HUD_SIZE / 2.0, CANCEL_BUTTON_HEIGHT)];
+        [_doneButton setTitle:NSLocalizedString(@"Done", nil) forState:UIControlStateNormal];
+        [_doneButton addTarget:self action:@selector(done) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_doneButton];
+        _doneButton.hidden = YES;
+
+        _buttonSeparator = [[UIView alloc] initWithFrame:CGRectMake(x + HUD_SIZE / 2.0, _doneButton.frame.origin.y + 2.0, 2, CANCEL_BUTTON_HEIGHT - 4.0)];
+        _buttonSeparator.backgroundColor = [UIColor colorWithWhite:0.8 alpha:1.0];
+        [self addSubview:_buttonSeparator];
+        _buttonSeparator.hidden = YES;
+
         imgMicrophone = [UIImage imageNamed:@"microphone"];
 
         // fill empty sound meters
@@ -68,15 +113,70 @@
 }
 
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+    // if record didn't started - the hud can be simply destroyed
+    // in any other case user has explicitly either save or drop recording
+    if (recordTime == 0)
+        [self cancelled:nil];
+    //[self commitRecording];
+}
+
+- (void)startRecording
+{
+    if (_recordSettings)
+        [self startForFilePath:_filePath withSettings:_recordSettings];
+
+    self.title = NSLocalizedString(@"Speak Now", @"While recording audio title");
+
+    _startButton.hidden = YES;
+    for (UIView *view in @[_doneButton, btnCancel, _buttonSeparator])
+        view.hidden = NO;
+}
+
+- (void)done
+{
     [self commitRecording];
 }
 
-- (void)startForFilePath:(NSString *)filePath {
+- (void)showInView:(UIView*)view
+{
+    [view addSubview:self];
+    self.alpha = 0.2;
+
+    [UIView animateWithDuration:0.25
+                     animations:^(void){
+                         self.alpha = 1.0;
+                         self.transform = CGAffineTransformMakeScale(1.1, 1.1);
+                     }
+                     completion:^(BOOL finished)
+                     {
+                         [self showStage2];
+                     }];
+}
+
+- (void)showStage2
+{
+    [UIView animateWithDuration:0.25
+                     animations:^
+                     {
+                         self.transform = CGAffineTransformIdentity;
+                     }];
+}
+
+- (void)dismiss
+{
+    [UIView animateWithDuration:0.25
+                     animations:^{
+                         self.transform = CGAffineTransformMakeScale(0.8, 0.8);
+                         self.alpha = .2;
+                     }
+                     completion:^(BOOL finished){
+                         [self removeFromSuperview];
+                     }];
+}
+
+- (void)startForFilePath:(NSString *)filePath withSettings:(NSDictionary*)settings {
     recordTime = 0;
     
-    self.alpha = 1.0f;
-    [self setNeedsDisplay];
-
 	AVAudioSession *audioSession = [AVAudioSession sharedInstance];
 	NSError *err = nil;
 	[audioSession setCategory :AVAudioSessionCategoryPlayAndRecord error:&err];
@@ -90,18 +190,6 @@
         NSLog(@"audioSession: %@ %d %@", [err domain], [err code], [[err userInfo] description]);
         return;
 	}
-	
-	recordSetting = [[NSMutableDictionary alloc] init];
-	
-	// You can change the settings for the voice quality
-	[recordSetting setValue :[NSNumber numberWithInt:kAudioFormatAppleIMA4] forKey:AVFormatIDKey];
-	[recordSetting setValue:[NSNumber numberWithFloat:16000.0] forKey:AVSampleRateKey];
-	[recordSetting setValue:[NSNumber numberWithInt: 1] forKey:AVNumberOfChannelsKey];
-	
-	// if you are using kAudioFormatLinearPCM format, activate these settings
-	//[recordSetting setValue :[NSNumber numberWithInt:16] forKey:AVLinearPCMBitDepthKey];
-	//[recordSetting setValue :[NSNumber numberWithBool:NO] forKey:AVLinearPCMIsBigEndianKey];
-	//[recordSetting setValue :[NSNumber numberWithBool:NO] forKey:AVLinearPCMIsFloatKey];
 	
     NSLog(@"Recording at: %@", filePath);
 	recorderFilePath = filePath;
@@ -118,7 +206,7 @@
 	}
 	
 	err = nil;
-	recorder = [[ AVAudioRecorder alloc] initWithURL:url settings:recordSetting error:&err];
+	recorder = [[AVAudioRecorder alloc] initWithURL:url settings:settings error:&err];
 	if(!recorder){
         NSLog(@"recorder: %@ %d %@", [err domain], [err code], [[err userInfo] description]);
         UIAlertView *alert =
@@ -146,8 +234,11 @@
         [cantRecordAlert show];
         return;
 	}
-	
-	[recorder recordForDuration:(NSTimeInterval) 20];
+
+    if (_maxDuration >= 1.0)
+	    [recorder recordForDuration:(NSTimeInterval)_maxDuration];
+    else
+        [recorder record];
 	
 	timer = [NSTimer scheduledTimerWithTimeInterval:WAVE_UPDATE_FREQUENCY target:self selector:@selector(updateMeters) userInfo:nil repeats:YES];
 }
@@ -156,9 +247,17 @@
     [recorder updateMeters];
 
     NSLog(@"meter:%5f", [recorder averagePowerForChannel:0]);
-    if (([recorder averagePowerForChannel:0] < -60.0) && (recordTime > 3.0)) {
-        [self commitRecording];
-        return;
+    if ([recorder averagePowerForChannel:0] < -60.0)
+    {
+        if ((_silentStopInterval > 0.0) && ((recordTime - lastLoudTime) > _silentStopInterval))
+        {
+            [self commitRecording];
+            return;
+        }
+    }
+    else
+    {
+        lastLoudTime = recordTime;
     }
     
     recordTime += WAVE_UPDATE_FREQUENCY;
@@ -187,15 +286,8 @@
 }
 
 - (void)cancelled:(id)sender {
-    self.alpha = 0.0;
-    [self setNeedsDisplay];
-    
     [timer invalidate];
     [self cancelRecording];
-}
-
-- (void)setCancelButtonTitle:(NSString *)title {
-    btnCancel.titleLabel.text = title;
 }
 
 #pragma mark - Sound meter operations

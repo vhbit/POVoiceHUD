@@ -39,31 +39,22 @@
 #define SOUND_METER_COUNT       40
 #define WAVE_UPDATE_FREQUENCY   0.05
 
-@interface POVoiceHUD : UIView <AVAudioRecorderDelegate> {
-    UIButton *btnCancel;
-    UIImage *imgMicrophone;
-    int soundMeters[40];
-    CGRect hudRect;
-    
-	NSMutableDictionary *recordSetting;
-	NSString *recorderFilePath;
-	AVAudioRecorder *recorder;
-	
-	SystemSoundID soundID;
-	NSTimer *timer;
-    
-    float recordTime;
-}
+@interface POVoiceHUD : UIView <AVAudioRecorderDelegate>
 
 - (id)initWithParentView:(UIView *)view;
-
-- (void)startForFilePath:(NSString *)filePath;
 - (void)cancelRecording;
-
-- (void)setCancelButtonTitle:(NSString *)title;
 
 @property (nonatomic, retain) NSString *title;
 @property (nonatomic, assign) id<POVoiceHUDDelegate> delegate;
+
+// all these properties should be set before starting recording
+@property (nonatomic) CGFloat maxDuration;
+@property (nonatomic) CGFloat silentStopInterval;
+@property (nonatomic, retain) NSString *filePath;
+@property (nonatomic, retain) NSDictionary *recordSettings;
+
+- (void)showInView:(UIView*)view;
+- (void)dismiss;
 
 @end
 
